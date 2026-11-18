@@ -15,14 +15,18 @@ jobs:
         with:
          # cuda: '12.6.3'
           cuda: '13.2.0'
-
-      - name: Clone llama.cpp and apply patch
+- name: Clone llama.cpp and apply patch
+        shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
+          dir
           $BASE_COMMIT = (Get-Content BASE_COMMIT -Raw).Trim()
+          Write-Host "Base commit: $BASE_COMMIT"
           git clone https://github.com tandem
           cd tandem
           git checkout $BASE_COMMIT
           git apply ../tandem.patch
+
 
       - name: Configure CMake
         working-directory: tandem
