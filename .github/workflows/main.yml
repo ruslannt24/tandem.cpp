@@ -23,7 +23,8 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $BASE_COMMIT = (Get-Content BASE_COMMIT -Raw).Trim()
-          $REPO_URL = "https://github.com" + "ggml-org/llama.cpp.git"
+          #$REPO_URL = "https://github.com" + "ggml-org/llama.cpp.git"
+          $REPO_URL = "https://github.com/ggml-org/llama.cpp.git"          
           git clone $REPO_URL tandem
           cd tandem
           git checkout $BASE_COMMIT
