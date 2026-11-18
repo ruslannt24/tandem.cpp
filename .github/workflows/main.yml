@@ -7,25 +7,35 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout tandem.cpp patch repo
         uses: actions/checkout@v4
 
       - name: Setup CUDA
         uses: Jimver/cuda-toolkit@v0.2.34
         with:
+         # cuda: '12.6.3'
           cuda: '13.2.0'
 
+      - name: Clone llama.cpp and apply patch
+        run: |
+          $BASE_COMMIT = (Get-Content BASE_COMMIT -Raw).Trim()
+          git clone https://github.com tandem
+          cd tandem
+          git checkout $BASE_COMMIT
+          git apply ../tandem.patch
+
       - name: Configure CMake
-        run: cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES="75;80;86;89;90;120"
+        working-directory: tandem
+        run: cmake -B build -DGGML_CUDA=ON -DLLAMA_CURL=OFF -DCMAKE_CUDA_ARCHITECTURES="75;80;86;89;90"
 
       - name: Build Release
-        run: cmake --build build --config Release -j 4
+        working-directory: tandem
+        run: cmake --build build --config Release -j 4 --target llama-server llama-cli
 
       - name: Package binaries
         run: |
           mkdir release_bin
-          copy build\bin\Release\*.exe release_bin\
-          copy build\bin\Release\*.dll release_bin\
+          Get-ChildItem -Path tandem\build -Recurse -Include *.exe,*.dll | Copy-Item -Destination release_bin\
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
