@@ -15,12 +15,15 @@ jobs:
         with:
           cuda: '12.6.3'
 
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Clone llama.cpp and apply patch
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $BASE_COMMIT = (Get-Content BASE_COMMIT -Raw).Trim()
-          $REPO_URL = "https://github.com/" + "ggml-org/llama.cpp.git"
+          $REPO_URL = "https://github.com" + "ggml-org/llama.cpp.git"
           git clone $REPO_URL tandem
           cd tandem
           git checkout $BASE_COMMIT
@@ -28,11 +31,11 @@ jobs:
 
       - name: Configure CMake
         working-directory: tandem
-        run: cmake -B build -DGGML_CUDA=ON -DLLAMA_CURL=OFF -DCMAKE_CUDA_ARCHITECTURES="75;80;86;89;90"
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON -DLLAMA_CURL=OFF -DCMAKE_CUDA_ARCHITECTURES="75;80;86;89;90"
 
       - name: Build Release
         working-directory: tandem
-        run: cmake --build build --config Release -j 4 --target llama-server llama-cli
+        run: cmake --build build -j 4 --target llama-server llama-cli
 
       - name: Package binaries
         run: |
