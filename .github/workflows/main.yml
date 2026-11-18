@@ -13,16 +13,15 @@ jobs:
       - name: Setup CUDA
         uses: Jimver/cuda-toolkit@v0.2.34
         with:
-          #cuda: '12.6.3'
-          cuda: '13.2.0'
+          cuda: '12.6.3'
+
       - name: Clone llama.cpp and apply patch
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          dir
           $BASE_COMMIT = (Get-Content BASE_COMMIT -Raw).Trim()
-          Write-Host "Base commit: $BASE_COMMIT"
-          git clone https://github.com tandem
+          $REPO_URL = "https://github.com/" + "ggml-org/llama.cpp.git"
+          git clone $REPO_URL tandem
           cd tandem
           git checkout $BASE_COMMIT
           git apply ../tandem.patch
