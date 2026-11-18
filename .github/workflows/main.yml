@@ -13,9 +13,9 @@ jobs:
       - name: Setup CUDA
         uses: Jimver/cuda-toolkit@v0.2.34
         with:
-         # cuda: '12.6.3'
+          #cuda: '12.6.3'
           cuda: '13.2.0'
-- name: Clone llama.cpp and apply patch
+      - name: Clone llama.cpp and apply patch
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -26,7 +26,6 @@ jobs:
           cd tandem
           git checkout $BASE_COMMIT
           git apply ../tandem.patch
-
 
       - name: Configure CMake
         working-directory: tandem
