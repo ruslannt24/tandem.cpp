@@ -16,41 +16,43 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install CMake
-        run: choco install cmake --install-args '"ADD_CMAKE_TO_PATH=1"'
+      - name: Install dependencies
+        run: |
+          choco install cmake make git
 
-      - name: Configure CMake
+      - name: Build DLL for LM Studio
         shell: cmd
         run: |
-          mkdir build && cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release ^
-              -DBUILD_SHARED_LIBS=ON ^
-              -DTANDEM_BUILD_LMSTUDIO=ON
+          make CC=cl CXX=cl ^
+              GGML_SHARED=1 ^
+              TANDEM_LMSTUDIO=1 ^
+              -j%NUMBER_OF_PROCESSORS%
 
-      - name: Build
-        shell: cmd
+      - name: Find and upload DLL
+        shell: pwsh
         run: |
-          cd build
-          cmake --build . --config Release
+          $dll = Get-ChildItem -Recurse -Filter "*.dll" | Select-Object -First 1
+          if ($dll) {
+            Write-Host "Found DLL: $($dll.FullName)"
+            Copy-Item $dll.FullName tandem.dll
+          } else {
+            throw "No DLL found after build"
+          }
 
-      - name: Upload DLL artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: tandem-windows-x64
-          path: build/Release/tandem.dll
+          path: tandem.dll
 
-  # При создании релиза — прикрепить DLL к нему
   release-dll:
     needs: [build-windows]
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
     steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: tandem-windows-x64
 
-      - name: Upload to release
-        uses: softprops/action-gh-release@v1
+      - uses: softprops/action-gh-release@v1
         with:
           files: tandem-windows-x64/tandem.dll
