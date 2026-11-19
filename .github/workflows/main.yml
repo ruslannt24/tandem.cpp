@@ -41,13 +41,12 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release `
             -DGGML_CUDA=ON `
             -DLLAMA_CURL=OFF `
-            -DCMAKE_CUDA_ARCHITECTURES="75;80;86;89;90"
+            -DCMAKE_CUDA_ARCHITECTURES="75;80;86;89;90" `
+            -DCMAKE_CUDA_FLAGS="-allow-unsupported-compiler"
 
       - name: Build Release
         working-directory: tandem
-        run: |
-          # Собираем цели. Если Ninja не найдет компилятор, здесь будет ошибка.
-          cmake --build build -j 4 --target llama-server llama-cli
+        run: cmake --build build -j 4 --target llama-server llama-cli
 
       - name: Install (Collect all DLLs and EXEs)
         working-directory: tandem
