@@ -1,4 +1,4 @@
-name: Build tandem.cpp
+name: Build tandem.cpp (Windows)
 
 on:
   push:
@@ -9,83 +9,6 @@ on:
     types: [ published ]
 
 jobs:
-  build-linux:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch: [x86_64, aarch64]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Install dependencies (x86_64)
-        if: matrix.arch == 'x86_64'
-        run: |
-          sudo apt update
-          sudo apt install -y build-essential cmake git libopenblas-dev \
-              liblapack-dev libomp-dev libcurl4-openssl-dev
-
-      - name: Install dependencies (aarch64)
-        if: matrix.arch == 'aarch64'
-        run: |
-          sudo apt update
-          sudo dpkg --add-architecture arm64
-          sudo apt install -y build-essential cmake git \
-              libopenblas-dev:arm64 liblapack-dev:arm64
-
-      - name: Configure CMake
-        run: |
-          mkdir build && cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release \
-              -DBUILD_SHARED_LIBS=ON \
-              -DTANDEM_BUILD_LMSTUDIO=ON
-
-      - name: Build
-        run: |
-          cd build
-          make -j$(nproc)
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: tandem-linux-${{ matrix.arch }}
-          path: build/libtandem.so
-
-  build-macos:
-    runs-on: macos-latest
-    strategy:
-      matrix:
-        arch: [x86_64, arm64]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Install dependencies
-        run: |
-          brew install cmake openblas lapack libomp curl
-
-      - name: Configure CMake
-        env:
-          ARCHFLAGS: "-arch ${{ matrix.arch }}"
-        run: |
-          mkdir build && cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release \
-              -DBUILD_SHARED_LIBS=ON \
-              -DTANDEM_BUILD_LMSTUDIO=ON
-
-      - name: Build
-        run: |
-          cd build
-          make -j$(sysctl -n hw.ncpu)
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: tandem-macos-${{ matrix.arch }}
-          path: build/libtandem.dylib
-
   build-windows:
     runs-on: windows-latest
     steps:
@@ -93,9 +16,8 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install dependencies
-        run: |
-          choco install cmake --install-args '"ADD_CMAKE_TO_PATH=1"'
+      - name: Install CMake
+        run: choco install cmake --install-args '"ADD_CMAKE_TO_PATH=1"'
 
       - name: Configure CMake
         shell: cmd
@@ -111,27 +33,24 @@ jobs:
           cd build
           cmake --build . --config Release
 
-      - name: Upload artifact
+      - name: Upload DLL artifact
         uses: actions/upload-artifact@v4
         with:
           name: tandem-windows-x64
           path: build/Release/tandem.dll
 
-  # Опционально: создать релиз с бинарниками
-  release-builds:
-    needs: [build-linux, build-macos, build-windows]
+  # При создании релиза — прикрепить DLL к нему
+  release-dll:
+    needs: [build-windows]
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
     steps:
-      - name: Download all artifacts
+      - name: Download artifact
         uses: actions/download-artifact@v4
+        with:
+          name: tandem-windows-x64
 
       - name: Upload to release
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            tandem-linux-x86_64/libtandem.so
-            tandem-linux-aarch64/libtandem.so
-            tandem-macos-x86_64/libtandem.dylib
-            tandem-macos-arm64/libtandem.dylib
-            tandem-windows-x64/tandem.dll
+          files: tandem-windows-x64/tandem.dll
