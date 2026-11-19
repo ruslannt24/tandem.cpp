@@ -32,13 +32,13 @@ jobs:
           git checkout $BASE_COMMIT
           git apply ../tandem.patch --ignore-whitespace
 
-      # 2. Самый важный момент: передаем флаг через ENV, а не через -D
-      # Это предотвращает падение cudafe++ на этапе проверки компилятора
+      # 2. КРИТИЧЕСКИЙ ШАГ: Передаем флаг через NVCC_APPEND_FLAGS в ENV.
+      # Это заставит nvcc видеть этот флаг ДАЖЕ во время проверки (Compiler ID phase).
       - name: Configure CMake
         working-directory: tandem
         shell: pwsh
         env:
-          CMAKE_CUDA_FLAGS: "-allow-unsupported-compiler"
+          NVCC_APPEND_FLAGS: "-allow-unsupported-compiler"
         run: |
           cmake -B build `
             -G Ninja `
@@ -55,14 +55,14 @@ jobs:
       - name: Install (Collect all DLLs and EXEs)
         working-directory: tandem
         run: |
-          # Собираем всё в одну папку (включая зависимости CUDA)
+          # Собираем всё необходимое для запуска в одну папку
           cmake --install build --prefix release_bin --config Release
 
       - name: Package binaries
         shell: pwsh
         run: |
           if (-not (Test-Path "release_bin")) { mkdir release_bin }
-          # Копируем всё содержимое из подпапок в корень, чтобы .exe видел .dll
+          # Собираем всё содержимое папки установки в корень архива
           Get-ChildItem -Path release_bin -Recurse | Copy-Item -Destination release_bin\ -Force
 
       - name: Upload Artifact
