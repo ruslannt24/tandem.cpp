@@ -1,4 +1,4 @@
-name: Build tandem.cpp (Windows)
+name: Build tandem.cpp CUDA (Windows)
 
 on:
   push:
@@ -9,46 +9,111 @@ on:
     types: [ published ]
 
 jobs:
-  build-windows:
+  build-windows-cuda:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # Посмотреть содержимое build.sh
+      # Установить CUDA Toolkit 12.4
+      - name: Install CUDA Toolkit
+        shell: pwsh
+        run: |
+          $installer = "cuda_12.4.0_windows.exe"
+          $url = "https://developer.download.nvidia.com/compute/cuda/12.4.0/local_installers/$installer"
+          
+          Write-Host "Downloading CUDA toolkit..."
+          Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing
+          
+          Write-Host "Installing CUDA (silent mode)..."
+          Start-Process -FilePath $installer `
+            -ArgumentList "-s -norestart -noToolKit -noDriver -noNvML -noVisualStudioIntegration" `
+            -Wait -NoNewWindow
+            
+          # Установить только Toolkit и cuDNN
+          Start-Process -FilePath $installer `
+            -ArgumentList "-s -norestart -toolkit" `
+            -Wait -NoNewWindow
+
+      - name: Set CUDA environment variables
+        shell: pwsh
+        run: |
+          Add-Content "$env:GITHUB_ENV" "CUDAToolkit_ROOT=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4"
+          Add-Content "$env:GITHUB_PATH" "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\bin"
+
+      # Показать содержимое build.sh для отладки
       - name: Show build script
         shell: bash
         run: cat build.sh
 
-      # Запустить сборку через bash (Git Bash доступен на Windows runner)
-      - name: Build
+      # Вариант 1: использовать build.sh с CUDA переменными
+      - name: Build with build.sh
         shell: bash
+        env:
+          CUDAToolkit_ROOT: "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4"
+          PATH: "/c/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/bin:$PATH"
         run: |
           chmod +x build.sh
           ./build.sh
 
-      # Найти скомпилированный DLL
-      - name: Find and upload DLL
+      # Вариант 2: если build.sh не работает, собрать напрямую через CMake
+      - name: Build with CMake directly (fallback)
+        if: failure()
+        shell: bash
+        env:
+          CUDAToolkit_ROOT: "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4"
+        run: |
+          # Клонировать llama.cpp и применить патч
+          git clone --depth 1 https://github.com/ggerganov/llama.cpp.git build-llama
+          cd build-llama
+          
+          # Применить патч из tandem.cpp
+          patch -p1 < ../tandem.patch || true
+          
+          mkdir build && cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGGML_CUDA=ON \
+            -DBUILD_SHARED_LIBS=ON \
+            -DTANDEM_LMSTUDIO=ON
+          cmake --build . --config Release
+
+      # Найти и загрузить DLL
+      - name: Find and upload CUDA DLL
         shell: pwsh
         run: |
-          $dll = Get-ChildItem -Recurse -Filter "*.dll" | Where-Object { $_.Name -like "*tandem*" -or $_.Name -like "llama*.dll" } | Select-Object -First 1
-          if ($dll) {
-            Write-Host "Found DLL: $($dll.FullName)"
-            Copy-Item $dll.FullName tandem.dll
+          Write-Host "Searching for built DLLs..."
+          
+          # Искать свежие DLL файлы (созданные за последний час)
+          $recentDlls = Get-ChildItem -Recurse -Filter "*.dll" | 
+            Where-Object { $_.LastWriteTime -gt (Get-Date).AddHours(-1) }
+          
+          if ($recentDlls.Count -gt 0) {
+            Write-Host "Found $($recentDlls.Count) recent DLL(s):"
+            $recentDlls | ForEach-Object { Write-Host "  $($_.FullName)" }
+            
+            # Взять первый найденный
+            Copy-Item $recentDlls[0].FullName tandem-cuda.dll
           } else {
-            # Если не нашли по имени, взять любой DLL из build директории
-            $allDlls = Get-ChildItem -Recurse -Filter "*.dll"
-            if ($allDlls.Count -gt 0) {
-              Write-Host "No tandem-specific DLL found. Taking first DLL:"
-              Write-Host $allDlls[0].FullName
-              Copy-Item $allDlls[0].FullName tandem.dll
-            } else {
-              throw "No DLL files found after build"
-            }
+            throw "No recently built DLL files found"
           }
 
       - uses: actions/upload-artifact@v4
         with:
-          name: tandem-windows-x64
-          path: tandem.dll
+          name: tandem-windows-x64-cuda
+          path: tandem-cuda.dll
+
+  # Опционально: прикрепить к релизу
+  release-dll:
+    needs: [build-windows-cuda]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: tandem-windows-x64-cuda
+
+      - uses: softprops/action-gh-release@v1
+        with:
+          files: tandem-windows-x64-cuda/tandem-cuda.dll
