@@ -1,75 +1,137 @@
-name: Build tandem.cpp Windows CUDA
+name: Build tandem.cpp
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  release:
+    types: [ published ]
 
 jobs:
-  build:
-    runs-on: windows-latest
+  build-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [x86_64, aarch64]
     steps:
-      - name: Checkout tandem.cpp patch repo
-        uses: actions/checkout@v4
-
-      - name: Setup CUDA
-        uses: Jimver/cuda-toolkit@v0.2.34
+      - uses: actions/checkout@v4
         with:
-          cuda: '12.6.3'
+          submodules: recursive
 
-      # 1. Настраиваем окружение MSVC (нужно для Ninja)
-      - name: Setup MSVC environment
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Clone llama.cpp and apply patch
-        shell: pwsh
+      - name: Install dependencies (x86_64)
+        if: matrix.arch == 'x86_64'
         run: |
-          $ErrorActionPreference = "Stop"
-          if (-not (Test-Path "BASE_COMMIT")) { throw "File BASE_COMMIT not found!" }
-          $BASE_COMMIT = (Get-Content BASE_COMMIT -Raw).Trim()
-      
-          $REPO_URL = "https://github.com/ggml-org/llama.cpp"          
-          git clone $REPO_URL tandem
-          cd tandem
-          git checkout $BASE_COMMIT
-          git apply ../tandem.patch --ignore-whitespace
+          sudo apt update
+          sudo apt install -y build-essential cmake git libopenblas-dev \
+              liblapack-dev libomp-dev libcurl4-openssl-dev
 
+      - name: Install dependencies (aarch64)
+        if: matrix.arch == 'aarch64'
+        run: |
+          sudo apt update
+          sudo dpkg --add-architecture arm64
+          sudo apt install -y build-essential cmake git \
+              libopenblas-dev:arm64 liblapack-dev:arm64
 
       - name: Configure CMake
-        working-directory: tandem
-        shell: pwsh
-        env:
-          # Это позволяет пройти проверку версии (убирает #error)
-          NVCC_APPEND_FLAGS: "-allow-unsupported-compiler"
         run: |
-          cmake -B build `
-            -G Ninja `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DGGML_CUDA=ON `
-            -DLLAMA_CURL=OFF `
-            -DCMAKE_CUDA_ARCHITECTURES="75;80;86;89;90" `
-            # Этот флаг передает /permissive- в компилятор MSVC через nvcc.
-            # Это отключает новые фичи C++, на которых падает cudafe++.
-            -DCMAKE_CUDA_FLAGS="-allow-unsupported-compiler -Xcompiler /permissive-"
+          mkdir build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release \
+              -DBUILD_SHARED_LIBS=ON \
+              -DTANDEM_BUILD_LMSTUDIO=ON
 
-      - name: Build Release
-        working-directory: tandem
+      - name: Build
         run: |
-          cmake --build build -j 4 --target llama-server llama-cli
+          cd build
+          make -j$(nproc)
 
-      - name: Install (Collect all DLLs and EXEs)
-        working-directory: tandem
-        run: |
-          # Собираем всё необходимое для запуска в одну папку
-          cmake --install build --prefix release_bin --config Release
-
-      - name: Package binaries
-        shell: pwsh
-        run: |
-          if (-not (Test-Path "release_bin")) { mkdir release_bin }
-          # Собираем всё содержимое папки установки в корень архива
-          Get-ChildItem -Path release_bin -Recurse | Copy-Item -Destination release_bin\ -Force
-
-      - name: Upload Artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tandem-cpp-windows-cuda
-          path: release_bin/
+          name: tandem-linux-${{ matrix.arch }}
+          path: build/libtandem.so
+
+  build-macos:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        arch: [x86_64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          brew install cmake openblas lapack libomp curl
+
+      - name: Configure CMake
+        env:
+          ARCHFLAGS: "-arch ${{ matrix.arch }}"
+        run: |
+          mkdir build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release \
+              -DBUILD_SHARED_LIBS=ON \
+              -DTANDEM_BUILD_LMSTUDIO=ON
+
+      - name: Build
+        run: |
+          cd build
+          make -j$(sysctl -n hw.ncpu)
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tandem-macos-${{ matrix.arch }}
+          path: build/libtandem.dylib
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          choco install cmake --install-args '"ADD_CMAKE_TO_PATH=1"'
+
+      - name: Configure CMake
+        shell: cmd
+        run: |
+          mkdir build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release ^
+              -DBUILD_SHARED_LIBS=ON ^
+              -DTANDEM_BUILD_LMSTUDIO=ON
+
+      - name: Build
+        shell: cmd
+        run: |
+          cd build
+          cmake --build . --config Release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tandem-windows-x64
+          path: build/Release/tandem.dll
+
+  # Опционально: создать релиз с бинарниками
+  release-builds:
+    needs: [build-linux, build-macos, build-windows]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            tandem-linux-x86_64/libtandem.so
+            tandem-linux-aarch64/libtandem.so
+            tandem-macos-x86_64/libtandem.dylib
+            tandem-macos-arm64/libtandem.dylib
+            tandem-windows-x64/tandem.dll
