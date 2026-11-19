@@ -22,26 +22,47 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          # Проверяем наличие файла с коммитом, чтобы не упасть на пустой строке
+          if (-not (Test-Path "BASE_COMMIT")) { throw "File BASE_COMMIT not found!" }
           $BASE_COMMIT = (Get-Content BASE_COMMIT -Raw).Trim()
-          #$REPO_URL = "https://github.com" + "ggml-org/llama.cpp.git"
-          $REPO_URL = "https://github.com/ggml-org/llama.cpp.git"          
+      
+          $REPO_URL = "https://github.com/ggml-org/llama.cpp"          
           git clone $REPO_URL tandem
           cd tandem
           git checkout $BASE_COMMIT
-          git apply ../tandem.patch
+          # Используем --ignore-whitespace для защиты от проблем с CRLF/LF
+          git apply ../tandem.patch --ignore-whitespace
 
       - name: Configure CMake
         working-directory: tandem
-        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON -DLLAMA_CURL=OFF -DCMAKE_CUDA_ARCHITECTURES="75;80;86;89;90"
+        run: |
+          cmake -B build `
+            -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DGGML_CUDA=ON `
+            -DLLAMA_CURL=OFF `
+            -DCMAKE_CUDA_ARCHITECTURES="75;80;86;89;90"
 
       - name: Build Release
         working-directory: tandem
-        run: cmake --build build -j 4 --target llama-server llama-cli
+        run: |
+          # Собираем цели. Если Ninja не найдет компилятор, здесь будет ошибка.
+          cmake --build build -j 4 --target llama-server llama-cli
+
+      - name: Install (Collect all DLLs and EXEs)
+        working-directory: tandem
+        run: |
+          # Это создаст чистую папку со всеми нужными файлами для запуска
+          cmake --install build --prefix release_bin --config Release
 
       - name: Package binaries
+        shell: pwsh
         run: |
-          mkdir release_bin
-          Get-ChildItem -Path tandem\build -Recurse -Include *.exe,*.dll | Copy-Item -Destination release_bin\
+          # На всякий случай проверяем, что папка не пуста
+          if (-not (Test-Path "release_bin")) { mkdir release_bin }
+          # В некоторых сборках cmake --install может положить файлы в подпапки. 
+          # Если вам нужны все файлы в корне архива:
+          Get-ChildItem -Path release_bin -Recurse | Copy-Item -Destination release_bin\ -Force
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
