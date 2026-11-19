@@ -36,8 +36,10 @@ jobs:
       - name: Configure CMake
         working-directory: tandem
         run: |
+          # Убираем -G Ninja, используем стандартный генератор VS 2022
           cmake -B build `
-            -G Ninja `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
             -DCMAKE_BUILD_TYPE=Release `
             -DGGML_CUDA=ON `
             -DLLAMA_CURL=OFF `
@@ -46,7 +48,11 @@ jobs:
 
       - name: Build Release
         working-directory: tandem
-        run: cmake --build build -j 4 --target llama-server llama-cli
+        run: |
+          # Для Visual Studio генератора синтаксис сборки чуть отличается (используем --config)
+          cmake --build build --config Release --target llama-server llama-cli -j 4
+
+
 
       - name: Install (Collect all DLLs and EXEs)
         working-directory: tandem
