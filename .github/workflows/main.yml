@@ -15,14 +15,13 @@ jobs:
         with:
           cuda: '12.6.3'
 
-      - name: Setup MSVC environment
-        uses: ilammy/msvc-dev-cmd@v1
+      # ВАЖНО: Мы УДАЛИЛИ шаг Setup MSVC environment, 
+      # так как будем использовать генератор Visual Studio, который сам всё найдет.
 
       - name: Clone llama.cpp and apply patch
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          # Проверяем наличие файла с коммитом, чтобы не упасть на пустой строке
           if (-not (Test-Path "BASE_COMMIT")) { throw "File BASE_COMMIT not found!" }
           $BASE_COMMIT = (Get-Content BASE_COMMIT -Raw).Trim()
       
@@ -30,13 +29,12 @@ jobs:
           git clone $REPO_URL tandem
           cd tandem
           git checkout $BASE_COMMIT
-          # Используем --ignore-whitespace для защиты от проблем с CRLF/LF
+          # Используем --ignore-whitespace для избежания ошибок из-за CRLF/LF
           git apply ../tandem.patch --ignore-whitespace
 
       - name: Configure CMake
         working-directory: tandem
         run: |
-          # Убираем -G Ninja, используем стандартный генератор VS 2022
           cmake -B build `
             -G "Visual Studio 17 2022" `
             -A x64 `
@@ -49,24 +47,20 @@ jobs:
       - name: Build Release
         working-directory: tandem
         run: |
-          # Для Visual Studio генератора синтаксис сборки чуть отличается (используем --config)
-          cmake --build build --config Release --target llama-server llama-cli -j 4
-
-
+          # При использовании генератора VS важно указывать --config Release
+          cmake --build build --config Release -j 4 --target llama-server llama-cli
 
       - name: Install (Collect all DLLs and EXEs)
         working-directory: tandem
         run: |
-          # Это создаст чистую папку со всеми нужными файлами для запуска
+          # Это самый надежный способ собрать всё необходимое для запуска в одну папку
           cmake --install build --prefix release_bin --config Release
 
       - name: Package binaries
         shell: pwsh
         run: |
-          # На всякий случай проверяем, что папка не пуста
+          # Собираем все файлы из папки установки в один плоский список (если нужно)
           if (-not (Test-Path "release_bin")) { mkdir release_bin }
-          # В некоторых сборках cmake --install может положить файлы в подпапки. 
-          # Если вам нужны все файлы в корне архива:
           Get-ChildItem -Path release_bin -Recurse | Copy-Item -Destination release_bin\ -Force
 
       - name: Upload Artifact
