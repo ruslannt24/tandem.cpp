@@ -32,12 +32,12 @@ jobs:
           git checkout $BASE_COMMIT
           git apply ../tandem.patch --ignore-whitespace
 
-      # 2. КРИТИЧЕСКИЙ ШАГ: Передаем флаг через NVCC_APPEND_FLAGS в ENV.
-      # Это заставит nvcc видеть этот флаг ДАЖЕ во время проверки (Compiler ID phase).
+
       - name: Configure CMake
         working-directory: tandem
         shell: pwsh
         env:
+          # Это позволяет пройти проверку версии (убирает #error)
           NVCC_APPEND_FLAGS: "-allow-unsupported-compiler"
         run: |
           cmake -B build `
@@ -45,7 +45,10 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release `
             -DGGML_CUDA=ON `
             -DLLAMA_CURL=OFF `
-            -DCMAKE_CUDA_ARCHITECTURES="75;80;86;89;90"
+            -DCMAKE_CUDA_ARCHITECTURES="75;80;86;89;90" `
+            # Этот флаг передает /permissive- в компилятор MSVC через nvcc.
+            # Это отключает новые фичи C++, на которых падает cudafe++.
+            -DCMAKE_CUDA_FLAGS="-allow-unsupported-compiler -Xcompiler /permissive-"
 
       - name: Build Release
         working-directory: tandem
