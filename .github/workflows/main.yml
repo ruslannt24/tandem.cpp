@@ -5,6 +5,8 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
+  release:
+    types: [ published ]
 
 jobs:
   build-windows:
@@ -14,11 +16,39 @@ jobs:
         with:
           submodules: recursive
 
-      # Посмотреть структуру репозитория
-      - name: List files
-        shell: cmd
-        run: dir /s /b *.txt *.cmake Makefile build.sh CMakeLists.txt 2>nul || echo "No build files found"
+      # Посмотреть содержимое build.sh
+      - name: Show build script
+        shell: bash
+        run: cat build.sh
 
-      - name: Show root directory
-        shell: cmd
-        run: dir
+      # Запустить сборку через bash (Git Bash доступен на Windows runner)
+      - name: Build
+        shell: bash
+        run: |
+          chmod +x build.sh
+          ./build.sh
+
+      # Найти скомпилированный DLL
+      - name: Find and upload DLL
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem -Recurse -Filter "*.dll" | Where-Object { $_.Name -like "*tandem*" -or $_.Name -like "llama*.dll" } | Select-Object -First 1
+          if ($dll) {
+            Write-Host "Found DLL: $($dll.FullName)"
+            Copy-Item $dll.FullName tandem.dll
+          } else {
+            # Если не нашли по имени, взять любой DLL из build директории
+            $allDlls = Get-ChildItem -Recurse -Filter "*.dll"
+            if ($allDlls.Count -gt 0) {
+              Write-Host "No tandem-specific DLL found. Taking first DLL:"
+              Write-Host $allDlls[0].FullName
+              Copy-Item $allDlls[0].FullName tandem.dll
+            } else {
+              throw "No DLL files found after build"
+            }
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tandem-windows-x64
+          path: tandem.dll
